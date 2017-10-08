@@ -2,7 +2,7 @@ import ast
 import astpp
 import graphviz
 import textwrap
-
+import sys
 
 textwidth = 28
 
@@ -286,18 +286,34 @@ def printNodes(node):
         printNodes(node.child)
 
 
-tree = ast.parse(open('test.py', 'r').read())
-print(tree)
-print(astpp.dump(tree))
+def main():
+    try:
+        filename = sys.argv[1]
+    except IndexError:
+        print("No filename passed in")
+        sys.exit(1)
+    try:
+        ftext = open(filename, 'r').read()
+    except FileNotFoundError:
+        print("Cannot find the file '{}'".format(filename))
+        sys.exit(1)
+    try:
+        tree = ast.parse(ftext)
+    except SyntaxError as e:
+        print("Invalid syntax in file:")
+        print(e)
+        sys.exit(1)
 
-visitor = FlowchartMakingVisitor()
-visitor.visit(tree)
-start = visitor.start
-deleteExtraneousNodes(start)
-printNodes(start)
+    visitor = FlowchartMakingVisitor()
+    visitor.visit(tree)
+    start = visitor.start
+    deleteExtraneousNodes(start)
+    g = graphviz.Digraph(format='png')
+    g.node('node1', str(start), shape=start.shape())
+    start.index = 1
+    generateGraph(g, start)
+    g.view(filename="flowchart")
 
-g = graphviz.Digraph(format='png')
-g.node("node1", str(start), shape=start.shape())
-start.index = 1
-generateGraph(g, start)
-g.view(filename="flowchart")
+
+if __name__ == '__main__':
+    main()
