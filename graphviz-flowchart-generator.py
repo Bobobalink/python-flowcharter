@@ -1,6 +1,10 @@
 import ast
 import astpp
 import graphviz
+import textwrap
+
+
+textwidth = 28
 
 
 class FlowchartNode:
@@ -10,21 +14,23 @@ class FlowchartNode:
         self.index = None
 
     def __str__(self):
-        return "base flowchart node?"
+        return textwrap.fill("base flowchart node?", width=textwidth)
 
     def shape(self):
         return "tripleoctagon"
 
 
 class StartNode(FlowchartNode):
-    def __init__(self, text):
-        self.name = text
-        super().__init__(None)
-        self.inputs = []
-        self.outputs = []
-
     def __str__(self):
-        return "start"
+        return "Start"
+
+    def shape(self):
+        return "ellipse"
+
+
+class EndNode(FlowchartNode):
+    def __str__(self):
+        return "Stop"
 
     def shape(self):
         return "ellipse"
@@ -36,7 +42,7 @@ class InputNode(FlowchartNode):
         super().__init__(parent)
 
     def __str__(self):
-        return "input {}".format(self.name)
+        return textwrap.fill("input {}".format(self.name), width=textwidth)
 
     def shape(self):
         return "parallelogram"
@@ -48,7 +54,7 @@ class OutputNode(FlowchartNode):
         super().__init__(parent)
 
     def __str__(self):
-        return "output {}".format(self.name)
+        return textwrap.fill("output {}".format(self.name), width=textwidth)
 
     def shape(self):
         return "parallelogram"
@@ -60,7 +66,7 @@ class ProcessNode(FlowchartNode):
         super().__init__(parent)
 
     def __str__(self):
-        return self.text
+        return textwrap.fill(self.text, width=textwidth)
 
     def shape(self):
         return "rectangle"
@@ -79,7 +85,7 @@ class ConditionalNode(FlowchartNode):
         self.child = {"No": None, "Yes": None}
 
     def __str__(self):
-        return self.condition
+        return textwrap.fill(self.condition, width=textwidth)
 
     def shape(self):
         return "diamond"
@@ -91,7 +97,7 @@ class SubProcessNode(FlowchartNode):
         super().__init__(parent)
 
     def __str__(self):
-        return "| {} |".format(self.name)
+        return textwrap.fill("| {} |".format(self.name), width=textwidth)
 
     def shape(self):
         return "rectangle"
@@ -124,6 +130,7 @@ class FlowchartMakingVisitor(ast.NodeVisitor):
     def visit_Module(self, node: ast.Module):
         for n in node.body:
             self.visit(n)
+        self.appendNode(EndNode(self.currentParent))
 
     def visit_Assign(self, node):
         if isinstance(node.value, ast.Call):  # special case for / input / nodes
@@ -226,34 +233,58 @@ class FlowchartMakingVisitor(ast.NodeVisitor):
             raise Exception("Unknown object to parse: {0} (line {0.lineno} col {0.col_offset})".format(o))
 
 
-def generateGraph(graph: graphviz.Digraph, node, index=1):
-    if isinstance(node, DummyConjunctionNode) or isinstance(node, DummyMiddleNode):
-        return generateGraph(graph, node.child, index)
+def deleteExtraneousNodes(node):
     if isinstance(node.child, dict):
-        graph.node("node{}".format(index), str(node), shape=node.shape())
-        node.index = index
-        i = index + 1
         for n in node.child:
-            graph.node("node{}".format(i), str(node.child[n]), shape=node.child[n].shape())
-            node.child[n].index = i
-            graph.edge("node{}".format(index), "node{}".format(i), label=n)
-            i = generateGraph(graph, node.child[n].child, i)
-        return i
+            if isinstance(node.child[n], (DummyMiddleNode, DummyConjunctionNode)):
+                node.child[n] = node.child[n].child
+                node.child[n].parent = node
+                deleteExtraneousNodes(node)  # test for if there's two dummy nodes one after another
+            else:
+                deleteExtraneousNodes(node.child[n])
     elif node.child:
-        graph.node("node{}".format(index), str(node), shape=node.shape())
-        node.index = index
-        graph.node("node{}".format(index + 1), str(node.child), shape=node.child.shape())
-        graph.edge("node{}".format(index), "node{}".format(index + 1))
-        if node.child.index:  # must be looping back
-            return index + 1
+        if isinstance(node.child, (DummyMiddleNode, DummyConjunctionNode)):
+            node.child = node.child.child
+            node.child.parent = node
+            deleteExtraneousNodes(node)
         else:
-            return generateGraph(graph, node.child, index + 1)
-    else:
-        graph.node("node{}".format(index), str(node), shape=node.shape())
-        return index + 1
+            deleteExtraneousNodes(node.child)
 
 
-g = graphviz.Digraph(format='png')
+def generateGraph(graph: graphviz.Digraph, node):
+    if isinstance(node.child, dict):
+        ind = node.index + 1
+        for n in node.child:
+            if node.child[n].index:
+                graph.edge("node{}".format(node.index), "node{}".format(node.child[n].index), label=n)
+            else:
+                graph.node("node{}".format(ind), str(node.child[n]), shape=node.child[n].shape())
+                graph.edge("node{}".format(node.index), "node{}".format(ind), label=n)
+                node.child[n].index = ind
+                ind = generateGraph(graph, node.child[n]) + 1
+        return ind
+    elif node.child:
+        if node.child.index:  # must be looping back
+            graph.edge("node{}".format(node.index), "node{}".format(node.child.index))
+            return node.index + 1
+        else:
+            graph.node("node{}".format(node.index + 1), str(node.child), shape=node.child.shape())
+            node.child.index = node.index + 1
+            graph.edge("node{}".format(node.index), "node{}".format(node.child.index))
+            return generateGraph(graph, node.child) + 1
+    return node.index
+
+
+def printNodes(node):
+    print(repr(node))
+    if isinstance(node.child, dict):
+        for n in node.child:
+            printNodes(node.child[n])
+            print('-------')
+        print('-----------')
+    elif node.child:
+        printNodes(node.child)
+
 
 tree = ast.parse(open('test.py', 'r').read())
 print(tree)
@@ -262,6 +293,11 @@ print(astpp.dump(tree))
 visitor = FlowchartMakingVisitor()
 visitor.visit(tree)
 start = visitor.start
+deleteExtraneousNodes(start)
+printNodes(start)
 
+g = graphviz.Digraph(format='png')
+g.node("node1", str(start), shape=start.shape())
+start.index = 1
 generateGraph(g, start)
 g.view(filename="flowchart")
