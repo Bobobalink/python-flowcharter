@@ -253,8 +253,8 @@ def deleteExtraneousNodes(node):
                 node.child[n] = node.child[n].child
                 deleteExtraneousNodes(node)  # test for if there's two dummy nodes one after another
             else:
-                node.index = 0
                 deleteExtraneousNodes(node.child[n])
+        node.index = 0
     elif node.child:
         if isinstance(node.child, (DummyMiddleNode, DummyConjunctionNode)):
             node.child = node.child.child
@@ -326,8 +326,8 @@ def main():
     deleteExtraneousNodes(start)
     g = graphviz.Digraph(format='png', engine='dot')
     g.attr(splines='spline')
-    g.attr(overlap='false')
-    g.attr(concentrate='true')
+    g.attr(overlap='voronoi')
+    g.attr(concentrate='false')
     g.node('node1', str(start), shape=start.shape())
     start.index = 1
     generateGraph(g, start)
