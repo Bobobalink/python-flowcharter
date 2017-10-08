@@ -8,8 +8,7 @@ textwidth = 28
 
 
 class FlowchartNode:
-    def __init__(self, parent):
-        self.parent = parent
+    def __init__(self):
         self.child = None
         self.index = None
 
@@ -37,9 +36,9 @@ class EndNode(FlowchartNode):
 
 
 class InputNode(FlowchartNode):
-    def __init__(self, parent, varName):
+    def __init__(self, varName):
         self.name = varName
-        super().__init__(parent)
+        super().__init__()
 
     def __str__(self):
         return textwrap.fill("input {}".format(self.name), width=textwidth)
@@ -49,9 +48,9 @@ class InputNode(FlowchartNode):
 
 
 class OutputNode(FlowchartNode):
-    def __init__(self, parent, varName):
+    def __init__(self, varName):
         self.name = varName
-        super().__init__(parent)
+        super().__init__()
 
     def __str__(self):
         return textwrap.fill("output {}".format(self.name), width=textwidth)
@@ -61,9 +60,9 @@ class OutputNode(FlowchartNode):
 
 
 class ProcessNode(FlowchartNode):
-    def __init__(self, parent, text):
+    def __init__(self, text):
         self.text = text
-        super().__init__(parent)
+        super().__init__()
 
     def __str__(self):
         return textwrap.fill(self.text, width=textwidth)
@@ -73,15 +72,15 @@ class ProcessNode(FlowchartNode):
 
 
 class VariableAssignmentNode(ProcessNode):
-    def __init__(self, parent, varName, expression):
+    def __init__(self, varName, expression):
         text = "{} = {}".format(varName, expression)
-        super().__init__(parent, text)
+        super().__init__(text)
 
 
 class ConditionalNode(FlowchartNode):
-    def __init__(self, parent, condition):
+    def __init__(self, condition):
         self.condition = condition
-        super().__init__(parent)
+        super().__init__()
         self.child = {"No": None, "Yes": None}
 
     def __str__(self):
@@ -92,9 +91,9 @@ class ConditionalNode(FlowchartNode):
 
 
 class SubProcessNode(FlowchartNode):
-    def __init__(self, parent, subprocessName):
+    def __init__(self, subprocessName):
         self.name = subprocessName
-        super().__init__(parent)
+        super().__init__()
 
     def __str__(self):
         return textwrap.fill("| {} |".format(self.name), width=textwidth)
@@ -104,9 +103,8 @@ class SubProcessNode(FlowchartNode):
 
 
 class DummyConjunctionNode(FlowchartNode):  # node to allow two nodes to return to the same place
-    def __init__(self, parent1, parent2):
-        self.parent2 = parent2
-        super().__init__(parent1)
+    def __init__(self):
+        super().__init__()
 
     def __str__(self):
         return "     | <---"
@@ -124,53 +122,53 @@ class FlowchartMakingVisitor(ast.NodeVisitor):
     operators = {ast.Mult: '*', ast.Add: '+', ast.Sub: '-', ast.Div: '/', ast.Or: 'or', ast.And: 'and', ast.Gt: '>', ast.Lt: '<', ast.Eq: '=', ast.NotEq: '!='}
 
     def __init__(self):
-        self.start = StartNode("start")
+        self.start = StartNode()
         self.currentParent = self.start
 
     def visit_Module(self, node: ast.Module):
         for n in node.body:
             self.visit(n)
-        self.appendNode(EndNode(self.currentParent))
+        self.appendNode(EndNode())
 
     def visit_Assign(self, node):
         if isinstance(node.value, ast.Call):  # special case for / input / nodes
             if node.value.func.id == 'input':
-                self.appendNode(InputNode(self.currentParent, node.targets[0].id))
+                self.appendNode(InputNode(node.targets[0].id))
                 return
             if isinstance(node.value.args[0], ast.Call) and node.value.args[0].func.id == 'input':  # basically, assume that any single function wrapping an input() statement in an assign is just a typecast
-                self.appendNode(InputNode(self.currentParent, node.targets[0].id))
+                self.appendNode(InputNode(node.targets[0].id))
                 return
         rhs = self.parseChunk(node.value)
-        self.appendNode(VariableAssignmentNode(self.currentParent, node.targets[0].id, rhs))
+        self.appendNode(VariableAssignmentNode(node.targets[0].id, rhs))
 
     def visit_AugAssign(self, node):
         rhs = self.parseChunk(node.value)
-        self.appendNode(VariableAssignmentNode(self.currentParent, node.target.id, "{0} {1} {2}".format(node.target.id, self.operators[node.op.__class__], rhs)))
+        self.appendNode(VariableAssignmentNode(node.target.id, "{0} {1} {2}".format(node.target.id, self.operators[node.op.__class__], rhs)))
 
     def visit_Expr(self, node):
         if isinstance(node.value, ast.Call):
             if node.value.func.id in {'print', 'pprint'}:  # / output / special casing
-                self.appendNode(OutputNode(self.currentParent, ', '.join(self.parseFunctionArgs(node.value))))
+                self.appendNode(OutputNode(', '.join(self.parseFunctionArgs(node.value))))
             else:
-                self.appendNode(ProcessNode(self.currentParent, self.parseFunctionCall(node.value)))
+                self.appendNode(ProcessNode(self.parseFunctionCall(node.value)))
         else:
             raise Exception("Unknown Node type in Expr: {0} (line {0.lineno} col {0.col_offset})".format(node.value))
 
     def visit_If(self, node):
         cond = self.parseChunk(node.test)
 
-        condNode = ConditionalNode(self.currentParent, cond)
+        condNode = ConditionalNode(cond)
         self.appendNode(condNode)
-        condNode.child['Yes'] = DummyMiddleNode(condNode)
+        condNode.child['Yes'] = DummyMiddleNode()
         self.currentParent = condNode.child['Yes']
         for n in node.body:
             self.visit(n)
         endbody = self.currentParent  # so we can connect it to the endcap eventually
-        condNode.child['No'] = DummyMiddleNode(condNode)
+        condNode.child['No'] = DummyMiddleNode()
         self.currentParent = condNode.child['No']
         for n in node.orelse:
             self.visit(n)
-        endcap = DummyConjunctionNode(self.currentParent, endbody)
+        endcap = DummyConjunctionNode()
         endbody.child = endcap
         self.currentParent.child = endcap
         self.currentParent = endcap
