@@ -7,5 +7,7 @@ if n > 5 and n < 10 and n != 7 or n == 12:
 else:
     b = 2 * cos(n) + 1
     if 1 < n / 2 < 4:
-        b += 1
+        while b > 0:
+            print(n - b)
+            b -= 1
 print(b)

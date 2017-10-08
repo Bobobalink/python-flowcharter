@@ -10,6 +10,7 @@ Example: `python graphviz-flowchart-generator.py test.py`
 
 ### Limitations
 * No function declarations in the file
-* All function calls will be printed simply as `func(a, b)`
-* no loops yet
-* excessive number of parentheses in complex expressions
+* All function calls will be printed as they look in code (for example `func(a, b)`)
+* No Lists yet
+* No For loops yet
+* Excessive number of parentheses in complex expressions

@@ -1,5 +1,4 @@
 import ast
-import astpp
 import graphviz
 import textwrap
 import sys
@@ -176,6 +175,20 @@ class FlowchartMakingVisitor(ast.NodeVisitor):
     def visit_ImportFrom(self, node):
         pass
 
+    def visit_While(self, node):
+        top = DummyConjunctionNode()
+        self.appendNode(top)
+        c = self.parseChunk(node.test)
+        condNode = ConditionalNode(c)
+        self.appendNode(condNode)
+        condNode.child["Yes"] = DummyMiddleNode()
+        self.currentParent = condNode.child["Yes"]
+        for n in node.body:
+            self.visit(n)
+        self.currentParent.child = top  # loop back
+        condNode.child["No"] = DummyMiddleNode()
+        self.currentParent = condNode.child["No"]
+
     def generic_visit(self, node):
         raise Exception("Unknown Node type: {0} (line {0.lineno} col {0.col_offset})".format(node))
 
@@ -232,21 +245,26 @@ class FlowchartMakingVisitor(ast.NodeVisitor):
 
 
 def deleteExtraneousNodes(node):
+    if node.index == 0:
+        return
     if isinstance(node.child, dict):
         for n in node.child:
             if isinstance(node.child[n], (DummyMiddleNode, DummyConjunctionNode)):
                 node.child[n] = node.child[n].child
-                node.child[n].parent = node
                 deleteExtraneousNodes(node)  # test for if there's two dummy nodes one after another
             else:
+                node.index = 0
                 deleteExtraneousNodes(node.child[n])
     elif node.child:
         if isinstance(node.child, (DummyMiddleNode, DummyConjunctionNode)):
             node.child = node.child.child
-            node.child.parent = node
             deleteExtraneousNodes(node)
         else:
+            node.index = 0
             deleteExtraneousNodes(node.child)
+
+
+directions = {"No": "s", "Yes": "e"}  # choose which corner of the node each child will come out of. Statically chosen, which makes some layouts uglier but overall helps
 
 
 def generateGraph(graph: graphviz.Digraph, node):
@@ -254,21 +272,21 @@ def generateGraph(graph: graphviz.Digraph, node):
         ind = node.index + 1
         for n in node.child:
             if node.child[n].index:
-                graph.edge("node{}".format(node.index), "node{}".format(node.child[n].index), label=n)
+                graph.edge("node{}".format(node.index), "node{}".format(node.child[n].index), label=n, tailport=directions[n], headport='n')
             else:
                 graph.node("node{}".format(ind), str(node.child[n]), shape=node.child[n].shape())
-                graph.edge("node{}".format(node.index), "node{}".format(ind), label=n)
+                graph.edge("node{}".format(node.index), "node{}".format(ind), label=n, tailport=directions[n], headport='n')
                 node.child[n].index = ind
                 ind = generateGraph(graph, node.child[n]) + 1
         return ind
     elif node.child:
         if node.child.index:  # must be looping back
-            graph.edge("node{}".format(node.index), "node{}".format(node.child.index))
+            graph.edge("node{}".format(node.index), "node{}".format(node.child.index), tailport='s', headport='n')
             return node.index + 1
         else:
             graph.node("node{}".format(node.index + 1), str(node.child), shape=node.child.shape())
             node.child.index = node.index + 1
-            graph.edge("node{}".format(node.index), "node{}".format(node.child.index))
+            graph.edge("node{}".format(node.index), "node{}".format(node.child.index), tailport='s', headport='n')
             return generateGraph(graph, node.child) + 1
     return node.index
 
@@ -306,7 +324,10 @@ def main():
     visitor.visit(tree)
     start = visitor.start
     deleteExtraneousNodes(start)
-    g = graphviz.Digraph(format='png')
+    g = graphviz.Digraph(format='png', engine='dot')
+    g.attr(splines='spline')
+    g.attr(overlap='false')
+    g.attr(concentrate='true')
     g.node('node1', str(start), shape=start.shape())
     start.index = 1
     generateGraph(g, start)
